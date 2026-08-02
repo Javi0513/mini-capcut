@@ -129,16 +129,38 @@ if uploaded_files:
 
 if st.session_state.scenes:
     for i, scene in enumerate(st.session_state.scenes):
-        with st.expander(f"Escena {i+1}: {scene['name']} ({scene['duration']:.1f}s)", expanded=False):
+        with st.expander(f"Escena {i+1}: {scene['name']} ({scene['duration']:.1f}s)", expanded=True):
             col1, col2, col3 = st.columns([2, 2, 1])
-            with col1:
-                st.video(scene["path"])
             with col2:
                 start, end = st.slider(
-                    "Recorte (segundos)", 0.0, scene["duration"],
-                    (scene["start"], scene["end"]), key=f"trim_{i}"
+                    "Recorte (segundos) — arrastra para ajustar inicio y fin",
+                    0.0, scene["duration"],
+                    (scene["start"], scene["end"]), step=0.1, key=f"trim_{i}"
                 )
                 scene["start"], scene["end"] = start, end
+                st.caption(f"Duración tras el recorte: {end - start:.1f}s")
+            with col1:
+                # Vista previa del recorte: se regenera cada vez que mueves el slider
+                preview_key = f"preview_{i}_{start}_{end}"
+                preview_path = os.path.join(PROJECT_DIR, f"preview_{i}.mp4")
+                if st.session_state.get(f"preview_cache_{i}") != preview_key:
+                    with st.spinner("Actualizando vista previa..."):
+                        fast = subprocess.run([
+                            "ffmpeg", "-y", "-ss", str(start), "-to", str(end),
+                            "-i", scene["path"], "-c", "copy", "-avoid_negative_ts", "make_zero",
+                            preview_path
+                        ], capture_output=True)
+                        if fast.returncode != 0:
+                            # El recorte rápido (sin recodificar) puede fallar según los
+                            # keyframes del clip; recodificamos como respaldo.
+                            subprocess.run([
+                                "ffmpeg", "-y", "-ss", str(start), "-to", str(end),
+                                "-i", scene["path"], "-c:v", "libx264", "-c:a", "aac",
+                                preview_path
+                            ], capture_output=True)
+                    st.session_state[f"preview_cache_{i}"] = preview_key
+                st.video(preview_path)
+                st.caption("👆 Así queda esta escena con el recorte actual")
             with col3:
                 if i > 0 and st.button("⬆️ Subir", key=f"up_{i}"):
                     st.session_state.scenes[i-1], st.session_state.scenes[i] = \
